@@ -4,9 +4,10 @@ import numpy as np
 import scipy.io
 import struct
 import array
+from sklearn.decomposition import PCA
 
-dataset_dir = '/home/alec/Documents/Hand-Pointnet/data/cvpr15_MSRAHandGestureDB/'
-save_dir = './'
+dataset_dir = '/home/alec/Documents/3d_hand_pose/data/cvpr15_MSRAHandGestureDB/'
+save_dir = '/home/alec/Documents/3d_hand_pose/data/preprocessed/'
 subject_names = ['P0', 'P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'P8']
 gesture_names = ['1','2','3','4','5','6','7','8','9','I','IP','L','MP','RP','T','TIP','Y']
 
@@ -14,10 +15,21 @@ JOINT_NUM = 21
 SAMPLE_NUM = 1024
 sample_num_level1 = 512
 sample_num_level2 = 128
-msra_valid = scipy.io.loadmat('/home/alec/Documents/Hand-Pointnet/preprocess/msra_valid.mat')['msra_valid']
+msra_valid = scipy.io.loadmat('/home/alec/Documents/3d_hand_pose/preprocess/msra_valid.mat')['msra_valid']
+
+class PointCloud:
+    def __init__(self, data, **kwargs):
+        self.points = data
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+        
+
+
+
 
 for sub_idx in range(len(subject_names)):
     os.makedirs(os.path.join(save_dir, subject_names[sub_idx]), exist_ok=True)
+    print(os.path.join(save_dir, subject_names[sub_idx]))
     for ges_idx in range(len(gesture_names)):
         gesture_dir = os.path.join(dataset_dir, subject_names[sub_idx], gesture_names[ges_idx])
         depth_files = glob.glob(os.path.join(gesture_dir, '*.bin'))
@@ -33,7 +45,7 @@ for sub_idx in range(len(subject_names)):
             gt_world = np.transpose(gt_world, axes=[2, 1, 0])
         
         save_gesture_dir = os.path.join(save_dir, subject_names[sub_idx], gesture_names[ges_idx])
-        # print(save_gesture_dir)
+        print(save_gesture_dir)
         os.makedirs(save_gesture_dir, exist_ok=True)
         
         Point_Cloud_FPS = np.zeros((frame_num, SAMPLE_NUM, 6))
@@ -45,6 +57,8 @@ for sub_idx in range(len(subject_names)):
         for frm_idx in range(len(depth_files)):
             if not valid[frm_idx]:
                 continue
+            
+            # Read data from binary file
             with open(os.path.join(gesture_dir, '{:06}'.format(frm_idx) + '_depth.bin'), 'rb') as f:
                 data_array = np.fromfile(f, np.int32, count=6)
                 img_width, img_height, bb_left, bb_top, bb_right, bb_bottom = data_array
@@ -52,8 +66,8 @@ for sub_idx in range(len(subject_names)):
                 bb_height = bb_bottom - bb_top
                 valid_pixel_num = bb_width * bb_height
                 hand_depth = np.fromfile(f, np.float32).reshape(bb_width, bb_height).T
-                print(hand_depth.shape)
             
+            # convert depth to xyz
             fFocal_MSRA_ = 241.42  # mm
             hand_3d = np.zeros((valid_pixel_num, 3))
             for i in range(bb_height):
@@ -63,31 +77,40 @@ for sub_idx in range(len(subject_names)):
                     hand_3d[idx, 1] = (img_height/2 - (i + bb_top))*hand_depth[i, j] / fFocal_MSRA_
                     hand_3d[idx, 2] = hand_depth[i, j]
             
-            valid_idx = any((hand_3d != 0))
-            print(valid_idx.shape)
-            raise Exception
+            valid_idx_mask = (hand_3d[:, 0] != 0) | (hand_3d[:, 1] != 0) | (hand_3d[:, 2] != 0)
+
+            valid_idx = np.arange(valid_pixel_num)[valid_idx_mask]
+            hand_points = hand_3d[valid_idx, :]
+            joint_xyz = np.squeeze(gt_world[frm_idx, :, :])
+            print(hand_points.shape)
+
+
+            # create OBB
+            pca = PCA()
+            pca.fit(hand_points)
+            coeff = pca.components_
+            if coeff[1, 0] < 0:
+                coeff[:, 0] = -coeff[:, 0]
+            if coeff[2, 2] < 0
+            coeff[:, 2] = -coeff[:, 2]
+            coeff[:, 1] = np.cross(coeff[:, 2], coeff[:, 0])
+
+            pt_cloud = PointCloud(hand_points)
+            hand_points_rotate = np.matmul(hand_points, coeff)
+
+            if hand_points.shape[0] < SAMPLE_NUM:
+                tmp = SAMPLE_NUM // hand_points.shape[0]
+                rand_ind = []
+                for tmp_i in range(tmp):
+                    rand_int = 
+
+            # raise Exception
             # hand_points = hand_3d[hand_3d != 0, :]
 
 
 #         for frm_idx = 1:length(depth_files)
             
-#             %% 2.2 convert depth to xyz
-#             fFocal_MSRA_ = 241.42;	% mm
-#             hand_3d = zeros(valid_pixel_num,3);
-#             for ii=1:bb_height
-#                 for jj=1:bb_width
-#                     idx = (jj-1)*bb_height+ii;
-#                     hand_3d(idx, 1) = -(img_width/2 - (jj+bb_left-1))*hand_depth(ii,jj)/fFocal_MSRA_;
-#                     hand_3d(idx, 2) = (img_height/2 - (ii+bb_top-1))*hand_depth(ii,jj)/fFocal_MSRA_;
-#                     hand_3d(idx, 3) = hand_depth(ii,jj);
-#                 end
-#             end
 
-#             valid_idx = 1:valid_pixel_num;
-#             valid_idx = valid_idx(hand_3d(:,1)~=0 | hand_3d(:,2)~=0 | hand_3d(:,3)~=0);
-#             hand_points = hand_3d(valid_idx,:);
-
-#             jnt_xyz = squeeze(gt_wld(frm_idx,:,:));
            
 #             %% 2.3 create OBB
 #             [coeff,score,latent] = princomp(hand_points);
