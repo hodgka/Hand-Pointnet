@@ -18,6 +18,37 @@ sample_num_level1 = 512
 sample_num_level2 = 128
 msra_valid = scipy.io.loadmat('/home/alec/Documents/3d_hand_pose/preprocess/msra_valid.mat')['msra_valid']
 
+def farthest_point_sampling_fast(point_cloud, sample_num):
+    pc_num = point_cloud.shape[0]
+
+    if pc_num <= sample_num:
+        sampled_idx = np.arange(pc_num)
+        sampled_idx = np.append(sampled_idx, np.random.randint(0, pc_num, sample_num - pc_num))
+        # sampled_idx = [sampled_idx; randi([1,pc_num],sample_num-pc_num,1)];
+    else:
+        sampled_idx = np.zeros((sample_num,1))
+        sampled_idx[0] = np.random.randint(0, pc_num)
+        cur_sample = np.tile(point_cloud[sampled_idx[0], :], (pc_num, 1))
+        # sampled_idx(1) = randi([1,pc_num]);
+        
+        cur_sample = repmat(point_cloud(sampled_idx(1),:),pc_num,1);
+        diff = point_cloud - cur_sample;
+        min_dist = sum(diff.*diff, 2);
+
+        for cur_sample_idx = 2:sample_num
+            %% find the farthest point
+            [~, sampled_idx(cur_sample_idx)] = max(min_dist);
+            
+            if cur_sample_idx < sample_num
+                % update min_dist
+                valid_idx = (min_dist>1e-8);
+                diff = point_cloud(valid_idx,:) - repmat(point_cloud(sampled_idx(cur_sample_idx),:),sum(valid_idx),1);
+                min_dist(valid_idx,:) = min(min_dist(valid_idx,:), sum(diff.*diff, 2));
+            end
+        end
+    end
+    sampled_idx = unique(sampled_idx);
+
 
 for sub_idx in range(len(subject_names)):
     os.makedirs(os.path.join(save_dir, subject_names[sub_idx]), exist_ok=True)
@@ -115,49 +146,41 @@ for sub_idx in range(len(subject_names)):
             for k in range(SAMPLE_NUM):
                 p1 = sensor_center - hand_points_sampled[k, :]
                 # flip the normal vector if it is not pointing towards the sensor
-                angle = np.arctan2(np.norm(np.cross(p1, normals_sampled[k, :])), np.matmul(p1, normals[k, :]).T)
+                product = np.cross(p1, normals_sampled[k, :])
+                angle = np.arctan2(np.norm(product), np.matmul(p1, normals[k, :]).T)
                 if angle > np.pi / 2 or angle < -np.pi / 2:
                     normals_sampled[k, :] = - normals_sampled[k, :]
             
             normals_sampled_rotate = np.matmul(normals_sampled, coeff)
 
             # normalize point_cloud
+            x_diff = max(hand_points_rotate[:, 0]) - min(hand_points_rotate[:, 0])
+            y_diff = max(hand_points_rotate[:, 1]) - min(hand_points_rotate[:, 1])
+            z_diff = max(hand_points_rotate[:, 2]) - min(hand_points_rotate[:, 2])
+            scale = 1.2
+            bb3d_x_len = scale*x_diff
+            bb3d_y_len = scale*y_diff
+            bb3d_z_len = scale*z_diff
+            max_bb3d_len = bb3d_x_len
+            hand_points_normalized_sampled = hand_points_rotate_sampled / max_bb3d_len
+            if hand_points.shape[0] < SAMPLE_NUM:
+                offset = np.mean(hand_points_rotate) / max_bb3d_len
+            else:
+                offset = np.mean(hand_points_normalized_sampled)
             
+            hand_points_normalized_sampled = hand_points_normalized_sampled - np.tile(offset, (SAMPLE_NUM, 1))
+
+            # FPS Sampling
+            pc = np.concatenate((hand_points_normalized_sampled, normals_sampled_rotate))
+            # 1st level
+            sampled_idx_l1 = fath
+
 
             # raise Exception
             # hand_points = hand_3d[hand_3d != 0, :]
 
 
-            %% 2.5 compute surface normal
             
-            sensorCenter = [0 0 0];
-            for k = 1 : SAMPLE_NUM
-               p1 = sensorCenter - hand_points_sampled(k,:);
-               % Flip the normal vector if it is not pointing towards the sensor.
-               angle = atan2(norm(cross(p1,normals_sampled(k,:))),p1*normals_sampled(k,:)');
-               if angle > pi/2 || angle < -pi/2
-                   normals_sampled(k,:) = -normals_sampled(k,:);
-               end
-            end
-            normals_sampled_rotate = normals_sampled*coeff;
-
-            %% 2.6 Normalize Point Cloud
-            x_min_max = [min(hand_points_rotate(:,1)), max(hand_points_rotate(:,1))];
-            y_min_max = [min(hand_points_rotate(:,2)), max(hand_points_rotate(:,2))];
-            z_min_max = [min(hand_points_rotate(:,3)), max(hand_points_rotate(:,3))];
-
-            scale = 1.2;
-            bb3d_x_len = scale*(x_min_max(2)-x_min_max(1));
-            bb3d_y_len = scale*(y_min_max(2)-y_min_max(1));
-            bb3d_z_len = scale*(z_min_max(2)-z_min_max(1));
-            max_bb3d_len = bb3d_x_len;
-
-            hand_points_normalized_sampled = hand_points_rotate_sampled/max_bb3d_len;
-            if size(hand_points,1)<SAMPLE_NUM
-                offset = mean(hand_points_rotate)/max_bb3d_len;
-            else
-                offset = mean(hand_points_normalized_sampled);
-            end
             hand_points_normalized_sampled = hand_points_normalized_sampled - repmat(offset,SAMPLE_NUM,1);
 
             %% 2.7 FPS Sampling
