@@ -6,6 +6,7 @@ import struct
 import array
 from sklearn.decomposition import PCA
 from open3d import PointCloud, Vector3dVector, orient_normals_towards_camera_location
+from farthest_point_sampling_fast import farthest_point_sampling_fast
 
 dataset_dir = '/home/alec/Documents/3d_hand_pose/data/cvpr15_MSRAHandGestureDB/'
 save_dir = '/home/alec/Documents/3d_hand_pose/data/preprocessed/'
@@ -16,38 +17,7 @@ JOINT_NUM = 21
 SAMPLE_NUM = 1024
 sample_num_level1 = 512
 sample_num_level2 = 128
-msra_valid = scipy.io.loadmat('/home/alec/Documents/3d_hand_pose/preprocess/msra_valid.mat')['msra_valid']
-
-def farthest_point_sampling_fast(point_cloud, sample_num):
-    pc_num = point_cloud.shape[0]
-
-    if pc_num <= sample_num:
-        sampled_idx = np.arange(pc_num)
-        sampled_idx = np.append(sampled_idx, np.random.randint(0, pc_num, sample_num - pc_num))
-        # sampled_idx = [sampled_idx; randi([1,pc_num],sample_num-pc_num,1)];
-    else:
-        sampled_idx = np.zeros((sample_num,1))
-        sampled_idx[0] = np.random.randint(0, pc_num)
-        cur_sample = np.tile(point_cloud[sampled_idx[0], :], (pc_num, 1))
-        # sampled_idx(1) = randi([1,pc_num]);
-        
-        cur_sample = repmat(point_cloud(sampled_idx(1),:),pc_num,1);
-        diff = point_cloud - cur_sample;
-        min_dist = sum(diff.*diff, 2);
-
-        for cur_sample_idx = 2:sample_num
-            %% find the farthest point
-            [~, sampled_idx(cur_sample_idx)] = max(min_dist);
-            
-            if cur_sample_idx < sample_num
-                % update min_dist
-                valid_idx = (min_dist>1e-8);
-                diff = point_cloud(valid_idx,:) - repmat(point_cloud(sampled_idx(cur_sample_idx),:),sum(valid_idx),1);
-                min_dist(valid_idx,:) = min(min_dist(valid_idx,:), sum(diff.*diff, 2));
-            end
-        end
-    end
-    sampled_idx = unique(sampled_idx);
+msra_valid = scipy.io.loadmat('/home/alec/Documents/3d_hand_pose/preprocess/msra_valid.mat')['msra_valid'] 
 
 
 for sub_idx in range(len(subject_names)):
@@ -173,45 +143,24 @@ for sub_idx in range(len(subject_names)):
             # FPS Sampling
             pc = np.concatenate((hand_points_normalized_sampled, normals_sampled_rotate))
             # 1st level
-            sampled_idx_l1 = fath
+            sampled_idx_l1 = farthest_point_sampling_fast(hand_points_normalized_sampled, sample_num_level1).T
+            other_idx = np.setdiff1d(np.arange(SAMPLE_NUM, sampled_idx_l1))
+            new_idx = np.append(sampled_idx_l1, other_idx)
+            pc[:sample_num_level1, :] = pc[new_idx, :]
 
+            # ground truth
+            joint_xyz_normalized = (joint_xyz*coeff) / max_bb3d_len
+            joint_xyz_normalized= joint_xyz_normalized - np.tile(offset, JOINT_NUM)
+            Point_Cloud_FPS[frm_idx, :, :] = pc
+            Volume_rotate(frm_idx,:,:) = coeff
+            Volume_length(frm_idx) = max_bb3d_len
+            Volume_offset(frm_idx,:) = offset
+            Volume_GT_XYZ(frm_idx,:,:) = jnt_xyz_normalized
 
-            # raise Exception
-            # hand_points = hand_3d[hand_3d != 0, :]
-
-
-            
-            hand_points_normalized_sampled = hand_points_normalized_sampled - repmat(offset,SAMPLE_NUM,1);
-
-            %% 2.7 FPS Sampling
-            pc = [hand_points_normalized_sampled normals_sampled_rotate];
-            % 1st level
-            sampled_idx_l1 = farthest_point_sampling_fast(hand_points_normalized_sampled, sample_num_level1)';
-            other_idx = setdiff(1:SAMPLE_NUM, sampled_idx_l1);
-            new_idx = [sampled_idx_l1 other_idx];
-            pc = pc(new_idx,:);
-            % 2nd level
-            sampled_idx_l2 = farthest_point_sampling_fast(pc(1:sample_num_level1,1:3), sample_num_level2)';
-            other_idx = setdiff(1:sample_num_level1, sampled_idx_l2);
-            new_idx = [sampled_idx_l2 other_idx];
-            pc(1:sample_num_level1,:) = pc(new_idx,:);
-            
-            %% 2.8 ground truth
-            jnt_xyz_normalized = (jnt_xyz*coeff)/max_bb3d_len;
-            jnt_xyz_normalized = jnt_xyz_normalized - repmat(offset,JOINT_NUM,1);
-
-            Point_Cloud_FPS(frm_idx,:,:) = pc;
-            Volume_rotate(frm_idx,:,:) = coeff;
-            Volume_length(frm_idx) = max_bb3d_len;
-            Volume_offset(frm_idx,:) = offset;
-            Volume_GT_XYZ(frm_idx,:,:) = jnt_xyz_normalized;
-        end
-        % 3. save files
-        save([save_gesture_dir '/Point_Cloud_FPS.mat'],'Point_Cloud_FPS');
-        save([save_gesture_dir '/Volume_rotate.mat'],'Volume_rotate');
-        save([save_gesture_dir '/Volume_length.mat'],'Volume_length');
-        save([save_gesture_dir '/Volume_offset.mat'],'Volume_offset');
-        save([save_gesture_dir '/Volume_GT_XYZ.mat'],'Volume_GT_XYZ');
-        save([save_gesture_dir '/valid.mat'],'valid');
-    end
-end
+        # save preprocessed data
+        np.save(os.path.join(save_gesture_dir, '/Point_Cloud_FPS.npy'), Point_Cloud_FPS)
+        np.save(os.path.join(save_gesture_dir, '/Volume_rotate.npy'), Volume_rotate)
+        np.save(os.path.join(save_gesture_dir, '/Volume_length.npy'), Volume_length)
+        np.save(os.path.join(save_gesture_dir, '/Volume_offset.npy'), Volume_offset)
+        np.save(os.path.join(save_gesture_dir, '/Volume_GT_XYZ.npy'), Volume_GT_XYZ)
+        np.save(os.path.join(save_gesture_dir, '/valid.npy'), valid)
