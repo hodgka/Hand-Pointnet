@@ -7,9 +7,17 @@ import array
 from sklearn.decomposition import PCA
 from open3d import PointCloud, Vector3dVector, orient_normals_towards_camera_location
 from farthest_point_sampling_fast import farthest_point_sampling_fast
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 
-dataset_dir = '/home/alec/Documents/3d_hand_pose/data/cvpr15_MSRAHandGestureDB/'
-save_dir = '/home/alec/Documents/3d_hand_pose/data/preprocessed/'
+np.set_printoptions(precision=5)
+#dataset_dir = '/home/alec/Documents/3d_hand_pose/data/cvpr15_MSRAHandGestureDB/'
+# save_dir = '/home/alec/Documents/3d_hand_pose/data/preprocessed/'
+dataset_dir = '/u/big/trainingdata/MSRA/cvpr15_MSRAHandGestureDB/'
+save_dir = '/u/big/trainingdata/MSRA/preprocessed/'
+msra_mat_dir = '/u/big/workspace_hodgkinsona/hand-pointnet/preprocess/msra_valid.mat'
+# msra_mat_dir = '/home/alec/Documents/3d_hand_pose/preprocess/msra_valid.mat'
+
 subject_names = ['P0', 'P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'P8']
 gesture_names = ['1','2','3','4','5','6','7','8','9','I','IP','L','MP','RP','T','TIP','Y']
 
@@ -17,7 +25,7 @@ JOINT_NUM = 21
 SAMPLE_NUM = 1024
 sample_num_level1 = 512
 sample_num_level2 = 128
-msra_valid = scipy.io.loadmat('/home/alec/Documents/3d_hand_pose/preprocess/msra_valid.mat')['msra_valid'] 
+msra_valid = scipy.io.loadmat(msra_mat_dir)['msra_valid'] 
 
 
 for sub_idx in range(len(subject_names)):
@@ -33,9 +41,10 @@ for sub_idx in range(len(subject_names)):
                 coords.append(line.strip().split())
             A = np.array(coords, dtype=np.float32)
             # A = np.array(f.read().strip().split(), dtype=np.float32)
-            gt_world = A.reshape(3, 21, frame_num)
-            gt_world[2, :, :] *= -1
-            gt_world = np.transpose(gt_world, axes=[2, 1, 0])
+            # gt_world = A.reshape(3, 21, frame_num)
+            gt_world = A.reshape(frame_num, 21, 3)
+            gt_world[:, :, 2] *= -1
+            #gt_world = np.transpose(gt_world, axes=[2, 1, 0])
         
         save_gesture_dir = os.path.join(save_dir, subject_names[sub_idx], gesture_names[ges_idx])
         print(save_gesture_dir)
@@ -50,7 +59,6 @@ for sub_idx in range(len(subject_names)):
         for frm_idx in range(len(depth_files)):
             if not valid[frm_idx]:
                 continue
-            
             # Read data from binary file
             with open(os.path.join(gesture_dir, '{:06}'.format(frm_idx) + '_depth.bin'), 'rb') as f:
                 data_array = np.fromfile(f, np.int32, count=6)
@@ -58,7 +66,7 @@ for sub_idx in range(len(subject_names)):
                 bb_width = bb_right - bb_left
                 bb_height = bb_bottom - bb_top
                 valid_pixel_num = bb_width * bb_height
-                hand_depth = np.fromfile(f, np.float32).reshape(bb_width, bb_height).T
+                hand_depth = np.fromfile(f, np.float32).reshape(bb_height, bb_width)
             
             # convert depth to xyz
             fFocal_MSRA_ = 241.42  # mm
@@ -66,101 +74,111 @@ for sub_idx in range(len(subject_names)):
             for i in range(bb_height):
                 for j in range(bb_width):
                     idx = j * bb_height + i
-                    hand_3d[idx, 0] = -(img_width/2 - (j+bb_left))*hand_depth[i, j] / fFocal_MSRA_
+                    hand_3d[idx, 0] = -(img_width/2 - (j + bb_left))*hand_depth[i, j] / fFocal_MSRA_
                     hand_3d[idx, 1] = (img_height/2 - (i + bb_top))*hand_depth[i, j] / fFocal_MSRA_
                     hand_3d[idx, 2] = hand_depth[i, j]
+            
+            # fig = plt.figure()
+            # ax = fig.add_subplot(211, projection='3d')
+            # ax.scatter(hand_3d[:, 0], hand_3d[:, 1], hand_3d[:, 2])
+            # ax.set_xlabel('X Label')
+            # ax.set_ylabel('Y Label')
+            # ax.set_zlabel('Z Label')
+            # ax = fig.add_subplot(212)
+            # ax.imshow(hand_depth)
+            # plt.show()
             
             valid_idx_mask = (hand_3d[:, 0] != 0) | (hand_3d[:, 1] != 0) | (hand_3d[:, 2] != 0)
 
             valid_idx = np.arange(valid_pixel_num)[valid_idx_mask]
             hand_points = hand_3d[valid_idx, :]
             joint_xyz = np.squeeze(gt_world[frm_idx, :, :])
-            print(hand_points.shape)
-
 
             # create OBB
             pca = PCA()
             pca.fit(hand_points)
             coeff = pca.components_
+            # print(coeff)
             if coeff[1, 0] < 0:
                 coeff[:, 0] = -coeff[:, 0]
-            if coeff[2, 2] < 0
-            coeff[:, 2] = -coeff[:, 2]
+            if coeff[2, 2] < 0:
+                coeff[:, 2] = -coeff[:, 2]
             coeff[:, 1] = np.cross(coeff[:, 2], coeff[:, 0])
-
+            
+            print(coeff[:, 1])
             pt_cloud = PointCloud()
             pt_cloud.points = Vector3dVector(hand_points)
             # pt_cloud = PointCloud(hand_points)
             hand_points_rotate = np.matmul(hand_points, coeff)
 
-            vals = np.arange(hand_points.shape[0])
-            if hand_points.shape[0] < SAMPLE_NUM:
-                tmp = SAMPLE_NUM // hand_points.shape[0]
-                rand_ind = np.tile(vals, tmp)
-                remaining = SAMPLE_NUM % hand_points.shape[0]
-                padding = np.random.choice(vals, remaining, False)
-                rand_ind = np.append(rand_ind, padding)
-            else:
-                rand_ind = np.random.choice(vals, SAMPLE_NUM)
+        #     vals = np.arange(hand_points.shape[0])
+        #     if hand_points.shape[0] < SAMPLE_NUM:
+        #         tmp = SAMPLE_NUM // hand_points.shape[0]
+        #         rand_ind = np.tile(vals, tmp)
+        #         remaining = SAMPLE_NUM % hand_points.shape[0]
+        #         padding = np.random.choice(vals, remaining, False)
+        #         rand_ind = np.append(rand_ind, padding)
+        #     else:
+        #         rand_ind = np.random.choice(vals, SAMPLE_NUM)
 
-            hand_points_sampled = hand_points[rand_ind, :]
-            hand_points_rotate_sampled = hand_points_rotate[rand_ind, :]
+        #     hand_points_sampled = hand_points[rand_ind, :]
+        #     hand_points_rotate_sampled = hand_points_rotate[rand_ind, :]
 
 
-            # compute surface normals
-            normal_k = 30
-            estimate_normals(p, search_param = KDTreeSearchParamHybrid(radius=1, max_nn=30))
-            normals = np.asarray(pt_cloud.normals)
-            normals_sampled = normals[rand_ind, :]
-            sensor_center = np.array([0, 0, 0])
-            for k in range(SAMPLE_NUM):
-                p1 = sensor_center - hand_points_sampled[k, :]
-                # flip the normal vector if it is not pointing towards the sensor
-                product = np.cross(p1, normals_sampled[k, :])
-                angle = np.arctan2(np.norm(product), np.matmul(p1, normals[k, :]).T)
-                if angle > np.pi / 2 or angle < -np.pi / 2:
-                    normals_sampled[k, :] = - normals_sampled[k, :]
+        #     # compute surface normals
+        #     normal_k = 30
+        #     estimate_normals(p, search_param=KDTreeSearchParamHybrid(radius=1, max_nn=30))
+        #     normals = np.asarray(pt_cloud.normals)
+        #     normals_sampled = normals[rand_ind, :]
+        #     sensor_center = np.array([0, 0, 0])
+        #     for k in range(SAMPLE_NUM):
+        #         p1 = sensor_center - hand_points_sampled[k, :]
+        #         # flip the normal vector if it is not pointing towards the sensor
+        #         product = np.cross(p1, normals_sampled[k, :])
+        #         angle = np.arctan2(np.norm(product), np.matmul(p1, normals[k, :]).T)
+        #         if angle > np.pi / 2 or angle < -np.pi / 2:
+        #             normals_sampled[k, :] = - normals_sampled[k, :]
             
-            normals_sampled_rotate = np.matmul(normals_sampled, coeff)
+        #     normals_sampled_rotate = np.matmul(normals_sampled, coeff)
 
-            # normalize point_cloud
-            x_diff = max(hand_points_rotate[:, 0]) - min(hand_points_rotate[:, 0])
-            y_diff = max(hand_points_rotate[:, 1]) - min(hand_points_rotate[:, 1])
-            z_diff = max(hand_points_rotate[:, 2]) - min(hand_points_rotate[:, 2])
-            scale = 1.2
-            bb3d_x_len = scale*x_diff
-            bb3d_y_len = scale*y_diff
-            bb3d_z_len = scale*z_diff
-            max_bb3d_len = bb3d_x_len
-            hand_points_normalized_sampled = hand_points_rotate_sampled / max_bb3d_len
-            if hand_points.shape[0] < SAMPLE_NUM:
-                offset = np.mean(hand_points_rotate) / max_bb3d_len
-            else:
-                offset = np.mean(hand_points_normalized_sampled)
+        #     # normalize point_cloud
+        #     x_diff = max(hand_points_rotate[:, 0]) - min(hand_points_rotate[:, 0])
+        #     y_diff = max(hand_points_rotate[:, 1]) - min(hand_points_rotate[:, 1])
+        #     z_diff = max(hand_points_rotate[:, 2]) - min(hand_points_rotate[:, 2])
+        #     scale = 1.2
+        #     bb3d_x_len = scale*x_diff
+        #     bb3d_y_len = scale*y_diff
+        #     bb3d_z_len = scale*z_diff
+        #     max_bb3d_len = bb3d_x_len
+        #     hand_points_normalized_sampled = hand_points_rotate_sampled / max_bb3d_len
+        #     if hand_points.shape[0] < SAMPLE_NUM:
+        #         offset = np.mean(hand_points_rotate) / max_bb3d_len
+        #     else:
+        #         offset = np.mean(hand_points_normalized_sampled)
             
-            hand_points_normalized_sampled = hand_points_normalized_sampled - np.tile(offset, (SAMPLE_NUM, 1))
+        #     hand_points_normalized_sampled = hand_points_normalized_sampled - np.tile(offset, (SAMPLE_NUM, 1))
 
-            # FPS Sampling
-            pc = np.concatenate((hand_points_normalized_sampled, normals_sampled_rotate))
-            # 1st level
-            sampled_idx_l1 = farthest_point_sampling_fast(hand_points_normalized_sampled, sample_num_level1).T
-            other_idx = np.setdiff1d(np.arange(SAMPLE_NUM, sampled_idx_l1))
-            new_idx = np.append(sampled_idx_l1, other_idx)
-            pc[:sample_num_level1, :] = pc[new_idx, :]
+        #     # FPS Sampling
+        #     pc = np.concatenate((hand_points_normalized_sampled, normals_sampled_rotate))
+        #     # 1st level
+        #     sampled_idx_l1 = farthest_point_sampling_fast(hand_points_normalized_sampled, sample_num_level1).T
+        #     other_idx = np.setdiff1d(np.arange(SAMPLE_NUM, sampled_idx_l1))
+        #     new_idx = np.append(sampled_idx_l1, other_idx)
+        #     pc[:sample_num_level1, :] = pc[new_idx, :]
 
-            # ground truth
-            joint_xyz_normalized = (joint_xyz*coeff) / max_bb3d_len
-            joint_xyz_normalized= joint_xyz_normalized - np.tile(offset, JOINT_NUM)
-            Point_Cloud_FPS[frm_idx, :, :] = pc
-            Volume_rotate(frm_idx,:,:) = coeff
-            Volume_length(frm_idx) = max_bb3d_len
-            Volume_offset(frm_idx,:) = offset
-            Volume_GT_XYZ(frm_idx,:,:) = jnt_xyz_normalized
+        #     # ground truth
+        #     joint_xyz_normalized = (joint_xyz*coeff) / max_bb3d_len
+        #     joint_xyz_normalized= joint_xyz_normalized - np.tile(offset, JOINT_NUM)
+        #     Point_Cloud_FPS[frm_idx, :, :] = pc
+        #     Volume_rotate[frm_idx,:,:] = coeff
+        #     Volume_length[frm_idx] = max_bb3d_len
+        #     Volume_offset[frm_idx,:] = offset
+        #     Volume_GT_XYZ[frm_idx,:,:] = joint_xyz_normalized
 
-        # save preprocessed data
-        np.save(os.path.join(save_gesture_dir, '/Point_Cloud_FPS.npy'), Point_Cloud_FPS)
-        np.save(os.path.join(save_gesture_dir, '/Volume_rotate.npy'), Volume_rotate)
-        np.save(os.path.join(save_gesture_dir, '/Volume_length.npy'), Volume_length)
-        np.save(os.path.join(save_gesture_dir, '/Volume_offset.npy'), Volume_offset)
-        np.save(os.path.join(save_gesture_dir, '/Volume_GT_XYZ.npy'), Volume_GT_XYZ)
-        np.save(os.path.join(save_gesture_dir, '/valid.npy'), valid)
+        # # save preprocessed data
+        # np.save(os.path.join(save_gesture_dir, '/Point_Cloud_FPS.npy'), Point_Cloud_FPS)
+        # np.save(os.path.join(save_gesture_dir, '/Volume_rotate.npy'), Volume_rotate)
+        # np.save(os.path.join(save_gesture_dir, '/Volume_length.npy'), Volume_length)
+        # np.save(os.path.join(save_gesture_dir, '/Volume_offset.npy'), Volume_offset)
+        # np.save(os.path.join(save_gesture_dir, '/Volume_GT_XYZ.npy'), Volume_GT_XYZ)
+        # np.save(os.path.join(save_gesture_dir, '/valid.npy'), valid)
