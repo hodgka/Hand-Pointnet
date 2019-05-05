@@ -168,9 +168,9 @@ for sub_idx in range(len(subject_names)):
             max_bb3d_len = bb3d_x_len
             hand_points_normalized_sampled = hand_points_rotate_sampled / max_bb3d_len
             if hand_points.shape[0] < SAMPLE_NUM:
-                offset = np.mean(hand_points_rotate) / max_bb3d_len
+                offset = np.mean(hand_points_rotate, axis=0) / max_bb3d_len
             else:
-                offset = np.mean(hand_points_normalized_sampled)
+                offset = np.mean(hand_points_normalized_sampled, axis=0)
             
             # 1024 x 3
             hand_points_normalized_sampled = hand_points_normalized_sampled - np.tile(offset, (SAMPLE_NUM, 1))
@@ -189,18 +189,30 @@ for sub_idx in range(len(subject_names)):
 
             # FPS Sampling
             pc = np.concatenate((hand_points_normalized_sampled, normals_sampled_rotate), axis=1) # 1024 x 6
-            print("PC SHAPE", pc.shape)
+            # print("PC SHAPE", pc.shape)
             # 1st level
-            sampled_idx_l1 = farthest_point_sampling_fast(hand_points_normalized_sampled, sample_num_level1).T
-            other_idx = np.setdiff1d(np.arange(SAMPLE_NUM), sampled_idx_l1)
-            new_idx = np.concatenate(sampled_idx_l1, other_idx)
-            print(new_idx.shape)
-            print(sampled_idx_l1.shape)
+            sampled_idx_l1 = farthest_point_sampling_fast(hand_points_normalized_sampled, sample_num_level1)
+            other_idx = np.setdiff1d(np.arange(SAMPLE_NUM), sampled_idx_l1).astype(np.int32)
+            # print(sampled_idx_l1.shape, sampled_idx_l1.dtype, other_idx.shape, other_idx.dtype)
+            new_idx = np.concatenate([sampled_idx_l1, other_idx])
+            pc = pc[new_idx, :]
+            sampled_idx_l2 = farthest_point_sampling_fast(pc[:sample_num_level1, :], sample_num_level2)
+            other_idx = np.setdiff1d(np.arange(sample_num_level1), sampled_idx_l2)
+            new_idx = np.concatenate([sampled_idx_l2, other_idx])
             pc[:sample_num_level1, :] = pc[new_idx, :]
+            # pc[:sample_num_level1, :] = pc[new_idx, :]
+
+            # % 2nd level
+            # sampled_idx_l2 = farthest_point_sampling_fast(pc(1:sample_num_level1,1:3), sample_num_level2)';
+            # other_idx = setdiff(1:sample_num_level1, sampled_idx_l2);
+            # new_idx = [sampled_idx_l2 other_idx];
+            # pc(1:sample_num_level1,:) = pc(new_idx,:);
+
 
             # ground truth
-            joint_xyz_normalized = (joint_xyz*coeff) / max_bb3d_len
-            joint_xyz_normalized= joint_xyz_normalized - np.tile(offset, JOINT_NUM)
+            offset = np.expand_dims(offset, 0)
+            joint_xyz_normalized = np.matmul(joint_xyz, coeff) / max_bb3d_len
+            joint_xyz_normalized= joint_xyz_normalized - np.repeat(offset, JOINT_NUM, axis=0)
             Point_Cloud_FPS[frm_idx, :, :] = pc
             Volume_rotate[frm_idx,:,:] = coeff
             Volume_length[frm_idx] = max_bb3d_len

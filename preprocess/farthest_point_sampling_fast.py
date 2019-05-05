@@ -1,7 +1,7 @@
 import numpy as np
 
 def farthest_point_sampling_fast(point_cloud, sample_num):
-    pc_num = point_cloud.shape[0]
+    pc_num, d = point_cloud.shape
     if pc_num <= sample_num:
         sampled_idx = np.arange(pc_num)
         sampled_idx = np.append(sampled_idx, np.random.choice(sampled_idx, sample_num-pc_num, replace=True))
@@ -18,9 +18,9 @@ def farthest_point_sampling_fast(point_cloud, sample_num):
             # print("SAMPLING:", sampled_idx)
             if cur_sample_idx < sample_num:
                 valid_idx = min_dist > 1e-8
-                diff = point_cloud[min_dist>1e-8] - np.tile(point_cloud[sampled_idx[cur_sample_idx], :], np.sum(valid_idx)).reshape(-1, 3)
+                diff = point_cloud[min_dist>1e-8] - np.tile(point_cloud[sampled_idx[cur_sample_idx], :], np.sum(valid_idx)).reshape(-1, d)
                 min_dist[valid_idx] = np.minimum(min_dist[valid_idx], np.sum(diff*diff, axis=1))
-    sampled_idx = np.unique(sampled_idx).reshape(-1, 1)
+    sampled_idx = np.unique(sampled_idx)#.reshape(-1, 1)
     return sampled_idx
 
 
