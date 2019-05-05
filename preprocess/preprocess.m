@@ -97,92 +97,89 @@ for sub_idx = 1:length(subject_names)
                 coeff(:,3) = -coeff(:,3);
             end
             coeff(:,2)=cross(coeff(:,3),coeff(:,1));
-            break
-        break
-    break
-    printf(coeff)
-            % ptCloud = pointCloud(hand_points);
 
-            % hand_points_rotate = hand_points*coeff;
+            ptCloud = pointCloud(hand_points);
 
-            % %% 2.4 sampling
-            % if size(hand_points,1)<SAMPLE_NUM
-            %     tmp = floor(SAMPLE_NUM/size(hand_points,1));
-            %     rand_ind = [];
-            %     for tmp_i = 1:tmp
-            %         rand_ind = [rand_ind 1:size(hand_points,1)];
-            %     end
-            %     rand_ind = [rand_ind randperm(size(hand_points,1), mod(SAMPLE_NUM, size(hand_points,1)))];
-            % else
-            %     rand_ind = randperm(size(hand_points,1),SAMPLE_NUM);
-            % end
-            % hand_points_sampled = hand_points(rand_ind,:);
-            % hand_points_rotate_sampled = hand_points_rotate(rand_ind,:);
+            hand_points_rotate = hand_points*coeff;
+
+            %% 2.4 sampling
+            if size(hand_points,1)<SAMPLE_NUM
+                tmp = floor(SAMPLE_NUM/size(hand_points,1));
+                rand_ind = [];
+                for tmp_i = 1:tmp
+                    rand_ind = [rand_ind 1:size(hand_points,1)];
+                end
+                rand_ind = [rand_ind randperm(size(hand_points,1), mod(SAMPLE_NUM, size(hand_points,1)))];
+            else
+                rand_ind = randperm(size(hand_points,1),SAMPLE_NUM);
+            end
+            hand_points_sampled = hand_points(rand_ind,:);
+            hand_points_rotate_sampled = hand_points_rotate(rand_ind,:);
             
-            % %% 2.5 compute surface normal
-            % normal_k = 30;
-            % normals = pcnormals(ptCloud, normal_k);
-            % normals_sampled = normals(rand_ind,:);
+            %% 2.5 compute surface normal
+            normal_k = 30;
+            normals = pcnormals(ptCloud, normal_k);
+            normals_sampled = normals(rand_ind,:);
 
-            % sensorCenter = [0 0 0];
-            % for k = 1 : SAMPLE_NUM
-            %    p1 = sensorCenter - hand_points_sampled(k,:);
-            %    % Flip the normal vector if it is not pointing towards the sensor.
-            %    angle = atan2(norm(cross(p1,normals_sampled(k,:))),p1*normals_sampled(k,:)');
-            %    if angle > pi/2 || angle < -pi/2
-            %        normals_sampled(k,:) = -normals_sampled(k,:);
-            %    end
-            % end
-            % normals_sampled_rotate = normals_sampled*coeff;
+            sensorCenter = [0 0 0];
+            for k = 1 : SAMPLE_NUM
+               p1 = sensorCenter - hand_points_sampled(k,:);
+               % Flip the normal vector if it is not pointing towards the sensor.
+               angle = atan2(norm(cross(p1,normals_sampled(k,:))),p1*normals_sampled(k,:)');
+               if angle > pi/2 || angle < -pi/2
+                   normals_sampled(k,:) = -normals_sampled(k,:);
+               end
+            end
+            normals_sampled_rotate = normals_sampled*coeff;
 
-            % %% 2.6 Normalize Point Cloud
-            % x_min_max = [min(hand_points_rotate(:,1)), max(hand_points_rotate(:,1))];
-            % y_min_max = [min(hand_points_rotate(:,2)), max(hand_points_rotate(:,2))];
-            % z_min_max = [min(hand_points_rotate(:,3)), max(hand_points_rotate(:,3))];
+            %% 2.6 Normalize Point Cloud
+            x_min_max = [min(hand_points_rotate(:,1)), max(hand_points_rotate(:,1))];
+            y_min_max = [min(hand_points_rotate(:,2)), max(hand_points_rotate(:,2))];
+            z_min_max = [min(hand_points_rotate(:,3)), max(hand_points_rotate(:,3))];
 
-            % scale = 1.2;
-            % bb3d_x_len = scale*(x_min_max(2)-x_min_max(1));
-            % bb3d_y_len = scale*(y_min_max(2)-y_min_max(1));
-            % bb3d_z_len = scale*(z_min_max(2)-z_min_max(1));
-            % max_bb3d_len = bb3d_x_len;
+            scale = 1.2;
+            bb3d_x_len = scale*(x_min_max(2)-x_min_max(1));
+            bb3d_y_len = scale*(y_min_max(2)-y_min_max(1));
+            bb3d_z_len = scale*(z_min_max(2)-z_min_max(1));
+            max_bb3d_len = bb3d_x_len;
 
-            % hand_points_normalized_sampled = hand_points_rotate_sampled/max_bb3d_len;
-            % if size(hand_points,1)<SAMPLE_NUM
-            %     offset = mean(hand_points_rotate)/max_bb3d_len;
-            % else
-            %     offset = mean(hand_points_normalized_sampled);
-            % end
-            % hand_points_normalized_sampled = hand_points_normalized_sampled - repmat(offset,SAMPLE_NUM,1);
+            hand_points_normalized_sampled = hand_points_rotate_sampled/max_bb3d_len;
+            if size(hand_points,1)<SAMPLE_NUM
+                offset = mean(hand_points_rotate)/max_bb3d_len;
+            else
+                offset = mean(hand_points_normalized_sampled);
+            end
+            hand_points_normalized_sampled = hand_points_normalized_sampled - repmat(offset,SAMPLE_NUM,1);
 
-            % %% 2.7 FPS Sampling
-            % pc = [hand_points_normalized_sampled normals_sampled_rotate];
-            % % 1st level
-            % sampled_idx_l1 = farthest_point_sampling_fast(hand_points_normalized_sampled, sample_num_level1)';
-            % other_idx = setdiff(1:SAMPLE_NUM, sampled_idx_l1);
-            % new_idx = [sampled_idx_l1 other_idx];
-            % pc = pc(new_idx,:);
-            % % 2nd level
-            % sampled_idx_l2 = farthest_point_sampling_fast(pc(1:sample_num_level1,1:3), sample_num_level2)';
-            % other_idx = setdiff(1:sample_num_level1, sampled_idx_l2);
-            % new_idx = [sampled_idx_l2 other_idx];
-            % pc(1:sample_num_level1,:) = pc(new_idx,:);
+            %% 2.7 FPS Sampling
+            pc = [hand_points_normalized_sampled normals_sampled_rotate];
+            % 1st level
+            sampled_idx_l1 = farthest_point_sampling_fast(hand_points_normalized_sampled, sample_num_level1)';
+            other_idx = setdiff(1:SAMPLE_NUM, sampled_idx_l1);
+            new_idx = [sampled_idx_l1 other_idx];
+            pc = pc(new_idx,:);
+            % 2nd level
+            sampled_idx_l2 = farthest_point_sampling_fast(pc(1:sample_num_level1,1:3), sample_num_level2)';
+            other_idx = setdiff(1:sample_num_level1, sampled_idx_l2);
+            new_idx = [sampled_idx_l2 other_idx];
+            pc(1:sample_num_level1,:) = pc(new_idx,:);
             
-            % %% 2.8 ground truth
-            % jnt_xyz_normalized = (jnt_xyz*coeff)/max_bb3d_len;
-            % jnt_xyz_normalized = jnt_xyz_normalized - repmat(offset,JOINT_NUM,1);
+            %% 2.8 ground truth
+            jnt_xyz_normalized = (jnt_xyz*coeff)/max_bb3d_len;
+            jnt_xyz_normalized = jnt_xyz_normalized - repmat(offset,JOINT_NUM,1);
 
-            % Point_Cloud_FPS(frm_idx,:,:) = pc;
-            % Volume_rotate(frm_idx,:,:) = coeff;
-            % Volume_length(frm_idx) = max_bb3d_len;
-            % Volume_offset(frm_idx,:) = offset;
-            % Volume_GT_XYZ(frm_idx,:,:) = jnt_xyz_normalized;
+            Point_Cloud_FPS(frm_idx,:,:) = pc;
+            Volume_rotate(frm_idx,:,:) = coeff;
+            Volume_length(frm_idx) = max_bb3d_len;
+            Volume_offset(frm_idx,:) = offset;
+            Volume_GT_XYZ(frm_idx,:,:) = jnt_xyz_normalized;
         end
         % 3. save files
-        % save([save_gesture_dir '/Point_Cloud_FPS.mat'],'Point_Cloud_FPS');
-        % save([save_gesture_dir '/Volume_rotate.mat'],'Volume_rotate');
-        % save([save_gesture_dir '/Volume_length.mat'],'Volume_length');
-        % save([save_gesture_dir '/Volume_offset.mat'],'Volume_offset');
-        % save([save_gesture_dir '/Volume_GT_XYZ.mat'],'Volume_GT_XYZ');
-        % save([save_gesture_dir '/valid.mat'],'valid');
+        save([save_gesture_dir '/Point_Cloud_FPS.mat'],'Point_Cloud_FPS');
+        save([save_gesture_dir '/Volume_rotate.mat'],'Volume_rotate');
+        save([save_gesture_dir '/Volume_length.mat'],'Volume_length');
+        save([save_gesture_dir '/Volume_offset.mat'],'Volume_offset');
+        save([save_gesture_dir '/Volume_GT_XYZ.mat'],'Volume_GT_XYZ');
+        save([save_gesture_dir '/valid.mat'],'valid');
     end
 end
