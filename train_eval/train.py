@@ -30,10 +30,11 @@ from network import PointNet_Plus
 from utils import group_points
 
 parser = argparse.ArgumentParser()
+parser.add_argument('--data_dir', type=str, default='/home/alec/Documents/3d_hand_pose/data/preprocessed', help="data directory")
 parser.add_argument('--batchSize', type=int, default=32, help='input batch size')
 parser.add_argument('--workers', type=int, default=0, help='number of data loading workers')
 parser.add_argument('--nepoch', type=int, default=60, help='number of epochs to train for')
-parser.add_argument('--ngpu', type=int, default=1, help='# GPUs')
+parser.add_argument('--ngpu', type=int, default=2, help='# GPUs')
 parser.add_argument('--main_gpu', type=int, default=0, help='main GPU id') # CUDA_VISIBLE_DEVICES=0 python train.py
 
 parser.add_argument('--learning_rate', type=float, default=0.001, help='learning rate at t=0')
@@ -78,11 +79,11 @@ logging.basicConfig(format='%(asctime)s %(message)s', datefmt='%Y/%m/%d %H:%M:%S
 logging.info('======================================================')
 
 # 1. Load data
-train_data = HandPointDataset(root_path='../preprocess', opt=opt, train = True)
+train_data = HandPointDataset(root_path=opt.data_dir, opt=opt, train = True)
 train_dataloader = torch.utils.data.DataLoader(train_data, batch_size=opt.batchSize,
 										  shuffle=True, num_workers=int(opt.workers), pin_memory=False)
 										  
-test_data = HandPointDataset(root_path='../preprocess', opt=opt, train = False)
+test_data = HandPointDataset(root_path=opt.data_dir, opt=opt, train = False)
 test_dataloader = torch.utils.data.DataLoader(test_data, batch_size=opt.batchSize,
 										  shuffle=False, num_workers=int(opt.workers), pin_memory=False)
 										  
@@ -124,12 +125,17 @@ for epoch in range(opt.nepoch):
 		torch.cuda.synchronize()       
 		# 3.1.1 load inputs and targets
 		points, volume_length, gt_pca, gt_xyz = data
-		gt_pca = Variable(gt_pca, requires_grad=False).cuda()
+
+		gt_pca.requires_grad = False
+		gt_pca.cuda()
+		# gt_pca = Variable(gt_pca, requires_grad=False).cuda()
 		points, volume_length, gt_xyz = points.cuda(), volume_length.cuda(), gt_xyz.cuda()
 
 		# points: B * 1024 * 6; target: B * 42
 		inputs_level1, inputs_level1_center = group_points(points, opt)
-		inputs_level1, inputs_level1_center = Variable(inputs_level1, requires_grad=False), Variable(inputs_level1_center, requires_grad=False)
+		# inputs_level1, inputs_level1_center = Variable(inputs_level1, requires_grad=False), Variable(inputs_level1_center, requires_grad=False)
+		inputs_level1.requires_grad = False
+		inputs_level1_center.requires_grad = False
 
 		# 3.1.2 compute output
 		optimizer.zero_grad()
@@ -179,12 +185,12 @@ for epoch in range(opt.nepoch):
 		torch.cuda.synchronize()
 		# 3.2.1 load inputs and targets
 		points, volume_length, gt_pca, gt_xyz = data
-		gt_pca = Variable(gt_pca, volatile=True).cuda()
+		with torch.no_grad():
+			gt_pca = gt_pca.cuda()
+			# points: B * 1024 * 6; target: B * 42
+			inputs_level1, inputs_level1_center = group_points(points, opt)
 		points, volume_length, gt_xyz = points.cuda(), volume_length.cuda(), gt_xyz.cuda()
 		
-		# points: B * 1024 * 6; target: B * 42
-		inputs_level1, inputs_level1_center = group_points(points, opt)
-		inputs_level1, inputs_level1_center = Variable(inputs_level1, volatile=True), Variable(inputs_level1_center, volatile=True)
 		
 		# 3.2.2 compute output
 		estimation = netR(inputs_level1, inputs_level1_center)

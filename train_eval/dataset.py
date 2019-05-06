@@ -35,7 +35,7 @@ class HandPointDataset(data.Dataset):
             self.SUBJECT_NUM = 3
             self.GESTURE_NUM = 2
 
-        self.total_frame_num = self.__total_frmae_num()
+        self.total_frame_num = self.__total_frame_num()
 
         self.point_clouds = np.empty(shape=[self.total_frame_num, self.SAMPLE_NUM, self.INPUT_FEATURE_NUM],
                                      dtype=np.float32)
@@ -75,10 +75,10 @@ class HandPointDataset(data.Dataset):
         # load PCA coeff
         PCA_data_path = os.path.join(self.root_path, subject_names[self.test_index])
         print("PCA_data_path: " + PCA_data_path)
-        PCA_coeff_mat = sio.loadmat(os.path.join(PCA_data_path, 'PCA_coeff.mat'))
-        self.PCA_coeff = torch.from_numpy(PCA_coeff_mat['PCA_coeff'][:, 0:self.PCA_SZ].astype(np.float32))
-        PCA_mean_mat = sio.loadmat(os.path.join(PCA_data_path, 'PCA_mean_xyz.mat'))
-        self.PCA_mean = torch.from_numpy(PCA_mean_mat['PCA_mean_xyz'].astype(np.float32))
+        PCA_coeff_mat = np.load(os.path.join(PCA_data_path, 'PCA_coeff.npy'))
+        self.PCA_coeff = torch.from_numpy(PCA_coeff_mat[:, 0:self.PCA_SZ].astype(np.float32))
+        PCA_mean_mat = np.load(os.path.join(PCA_data_path, 'PCA_mean_xyz.npy'))
+        self.PCA_mean = torch.from_numpy(PCA_mean_mat.astype(np.float32))
 
         tmp = self.PCA_mean.expand(self.total_frame_num, self.JOINT_NUM * 3)
         tmp_demean = self.gt_xyz - tmp
@@ -94,34 +94,33 @@ class HandPointDataset(data.Dataset):
         return self.point_clouds.size(0)
 
     def __loaddata(self, data_dir):
-        point_cloud = sio.loadmat(os.path.join(data_dir, 'Point_Cloud_FPS.mat'))
-        gt_data = sio.loadmat(os.path.join(data_dir, "Volume_GT_XYZ.mat"))
-        volume_length = sio.loadmat(os.path.join(data_dir, "Volume_length.mat"))
-        valid = sio.loadmat(os.path.join(data_dir, "valid.mat"))
+        point_cloud = np.load(os.path.join(data_dir, 'Point_Cloud_FPS.npy'))
+        gt_data = np.load(os.path.join(data_dir, "Volume_GT_XYZ.npy"))
+        volume_length = np.load(os.path.join(data_dir, "Volume_length.npy"))
+        valid = np.load(os.path.join(data_dir, "valid.npy"))
 
         self.start_index = self.end_index + 1
-        self.end_index = self.end_index + len(point_cloud['Point_Cloud_FPS'])
+        self.end_index = self.end_index + point_cloud.shape[0]
 
-        self.point_clouds[(self.start_index - 1):self.end_index, :, :] = point_cloud['Point_Cloud_FPS'].astype(
-            np.float32)
-        self.gt_xyz[(self.start_index - 1):self.end_index, :, :] = gt_data['Volume_GT_XYZ'].astype(np.float32)
-        self.volume_length[(self.start_index - 1):self.end_index, :] = volume_length['Volume_length'].astype(np.float32)
-        self.valid[(self.start_index - 1):self.end_index, :] = valid['valid'].astype(np.float32)
+        self.point_clouds[(self.start_index - 1):self.end_index, :, :] = point_cloud.astype(np.float32)
+        self.gt_xyz[(self.start_index - 1):self.end_index, :, :] = gt_data.astype(np.float32)
+        self.volume_length[(self.start_index - 1):self.end_index, :] = volume_length.astype(np.float32)
+        self.valid[(self.start_index - 1):self.end_index, :] = valid.astype(np.float32)
 
-    def __total_frmae_num(self):
+    def __total_frame_num(self):
         frame_num = 0
         if self.train:  # train
             for i_subject in range(self.SUBJECT_NUM):
                 if i_subject != self.test_index:
                     for i_gesture in range(self.GESTURE_NUM):
                         cur_data_dir = os.path.join(self.root_path, subject_names[i_subject], gesture_names[i_gesture])
-                        frame_num = frame_num + self.__get_frmae_num(cur_data_dir)
+                        frame_num = frame_num + self.__get_frame_num(cur_data_dir)
         else:  # test
             for i_gesture in range(self.GESTURE_NUM):
                 cur_data_dir = os.path.join(self.root_path, subject_names[self.test_index], gesture_names[i_gesture])
-                frame_num = frame_num + self.__get_frmae_num(cur_data_dir)
+                frame_num = frame_num + self.__get_frame_num(cur_data_dir)
         return frame_num
 
-    def __get_frmae_num(self, data_dir):
-        volume_length = sio.loadmat(os.path.join(data_dir, "Volume_length.mat"))
-        return len(volume_length['Volume_length'])
+    def __get_frame_num(self, data_dir):
+        volume_length = np.load(os.path.join(data_dir, "Volume_length.npy"))
+        return volume_length.shape[0]
